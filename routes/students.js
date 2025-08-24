@@ -63,6 +63,21 @@ router.get("/", async (req, res) => {
       }
     }
 
+    // ✅ Add deduplication step
+    pipeline.push({
+      $group: {
+        _id: {
+          instCode: "$instCode",
+          branchCode: "$branchCode",
+          distCode: "$distCode",
+        },
+        doc: { $first: "$$ROOT" }, // keep only first document for each combo
+      },
+    });
+
+    // ✅ Replace grouped docs back
+    pipeline.push({ $replaceRoot: { newRoot: "$doc" } });
+
     console.log("📌 Pipeline being applied:", JSON.stringify(pipeline, null, 2));
 
     const results = await Student.aggregate(pipeline).limit(200); // limit to avoid overload
