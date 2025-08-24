@@ -1,94 +1,124 @@
-import express from "express";
-import mongoose from "mongoose";
-import cors from "cors";
-import dotenv from "dotenv";
+const express = require("express");
+const router = express.Router();
+const Student = require("../models/Student"); // adjust path if needed
 
-// ✅ Load .env (only locally, Render injects env vars automatically)
-if (process.env.NODE_ENV !== "production") {
-  dotenv.config();
-}
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-
-// ✅ Connect MongoDB Atlas
-mongoose
-  .connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => console.log("✅ MongoDB Atlas Connected"))
-  .catch((err) => console.error("❌ MongoDB Connection Error:", err));
-
-// ✅ Schema
-const studentSchema = new mongoose.Schema({}, { strict: false });
-const Student = mongoose.model("Student", studentSchema);
-
-// ✅ Caste → DB Field Map
-const casteFieldMap = {
-  "OC Boys": "ocBoys",
-  "OC Girls": "ocGirls",
-  "BC-A Boys": "bcABoys",
-  "BC-A Girls": "bcAGirls",
-  "BC-B Boys": "bcBBoys",
-  "BC-B Girls": "bcBGirls",
-  "BC-C Boys": "bcCBoys",
-  "BC-C Girls": "bcCGirls",
-  "BC-D Boys": "bcDBoys",
-  "BC-D Girls": "bcDGirls",
-  "BC-E Boys": "bcEBoys",
-  "BC-E Girls": "bcEGirls",
-  "SC Boys": "scBoys",
-  "SC Girls": "scGirls",
-  "ST Boys": "stBoys",
-  "ST Girls": "stGirls",
-  "EWS GEN OU": "ewsGenOu",
-  "EWS Girls OU": "ewsGirlsOu",
-};
-
-// ✅ API Route
-app.get("/students", async (req, res) => {
+// 🔹 Main students search route
+router.get("/", async (req, res) => {
   try {
     const { branch, district, caste, minRank, maxRank } = req.query;
+
     let filter = {};
 
-    // 🎯 Apply branch filter
     if (branch) filter.branchCode = branch.toUpperCase();
-
-    // 🎯 Apply district filter
     if (district) filter.distCode = district.toUpperCase();
 
-    // 🎯 Apply caste + rank filter
-    if (caste) {
-      const casteField = casteFieldMap[caste];
-      if (casteField) {
-        let rankCondition = {};
+    // caste field map
+    const casteFieldMap = {
+      "OC Boys": "ocBoys",
+      "OC Girls": "ocGirls",
+      "BC-A Boys": "bcABoys",
+      "BC-A Girls": "bcAGirls",
+      "BC-B Boys": "bcBBoys",
+      "BC-B Girls": "bcBGirls",
+      "BC-C Boys": "bcCBoys",
+      "BC-C Girls": "bcCGirls",
+      "BC-D Boys": "bcDBoys",
+      "BC-D Girls": "bcDGirls",
+      "BC-E Boys": "bcEBoys",
+      "BC-E Girls": "bcEGirls",
+      "SC Boys": "scBoys",
+      "SC Girls": "scGirls",
+      "ST Boys": "stBoys",
+      "ST Girls": "stGirls",
+      "EWS GEN OU": "ewsGenOu",
+      "EWS Girls OU": "ewsGirlsOu",
+    };
 
-        if (minRank) rankCondition.$gte = parseInt(minRank);
-        if (maxRank) rankCondition.$lte = parseInt(maxRank);
+    let pipeline = [{ $match: filter }];
 
-        if (Object.keys(rankCondition).length > 0) {
-          // 🎯 If rank given → filter within that rank range
-          filter[casteField] = rankCondition;
-        } else {
-          // 🎯 If only caste selected → ensure field exists
-          filter[casteField] = { $exists: true };
-        }
+    // 🔹 Apply caste + rank filter
+    if (caste && casteFieldMap[caste]) {
+      const casteField = `$${casteFieldMap[caste]}`;
+      let expr = [];
+
+      if (minRank) expr.push({ $gte: [casteField, parseInt(minRank)] });
+      if (maxRank) expr.push({ $lte: [casteField, parseInt(maxRank)] });
+
+      if (expr.length > 0) {
+        pipeline.push({
+          $match: { $expr: { $and: expr } },
+        });
       }
     }
 
-    console.log("📌 Final Query Filter:", JSON.stringify(filter, null, 2));
+    // ✅ Group to remove duplicates
+    pipeline.push({
+      $group: {
+        _id: {
+          instCode: "$instCode",
+          instituteName: "$instituteName",
+          branchCode: "$branchCode",
+          distCode: "$distCode",
+        },
+        // keep *all* caste fields
+        ocBoys: { $min: "$ocBoys" },
+        ocGirls: { $min: "$ocGirls" },
+        bcABoys: { $min: "$bcABoys" },
+        bcAGirls: { $min: "$bcAGirls" },
+        bcBBoys: { $min: "$bcBBoys" },
+        bcBGirls: { $min: "$bcBGirls" },
+        bcCBoys: { $min: "$bcCBoys" },
+        bcCGirls: { $min: "$bcCGirls" },
+        bcDBoys: { $min: "$bcDBoys" },
+        bcDGirls: { $min: "$bcDGirls" },
+        bcEBoys: { $min: "$bcEBoys" },
+        bcEGirls: { $min: "$bcEGirls" },
+        scBoys: { $min: "$scBoys" },
+        scGirls: { $min: "$scGirls" },
+        stBoys: { $min: "$stBoys" },
+        stGirls: { $min: "$stGirls" },
+        ewsGenOu: { $min: "$ewsGenOu" },
+        ewsGirlsOu: { $min: "$ewsGirlsOu" },
+      },
+    });
 
-    // 🎯 Get matching students
-    const students = await Student.find(filter).lean();
-    res.json(students);
+    // ✅ Flatten (remove `_id` object)
+    pipeline.push({
+      $project: {
+        _id: 0,
+        instCode: "$_id.instCode",
+        instituteName: "$_id.instituteName",
+        branchCode: "$_id.branchCode",
+        distCode: "$_id.distCode",
+        ocBoys: 1,
+        ocGirls: 1,
+        bcABoys: 1,
+        bcAGirls: 1,
+        bcBBoys: 1,
+        bcBGirls: 1,
+        bcCBoys: 1,
+        bcCGirls: 1,
+        bcDBoys: 1,
+        bcDGirls: 1,
+        bcEBoys: 1,
+        bcEGirls: 1,
+        scBoys: 1,
+        scGirls: 1,
+        stBoys: 1,
+        stGirls: 1,
+        ewsGenOu: 1,
+        ewsGirlsOu: 1,
+      },
+    });
+
+    console.log("📌 Final Pipeline:", JSON.stringify(pipeline, null, 2));
+
+    const results = await Student.aggregate(pipeline).limit(200);
+    res.json(results);
   } catch (err) {
-    console.error("❌ Error in /students:", err);
-    res.status(500).json({ error: err.message });
+    console.error("❌ Error in /students route:", err);
+    res.status(500).send("Server error");
   }
 });
 
-// ✅ Start server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+module.exports = router;
