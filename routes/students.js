@@ -1,3 +1,4 @@
+// students.js
 const express = require("express");
 const router = express.Router();
 const Student = require("../models/Student"); // adjust path if needed
@@ -36,6 +37,7 @@ router.get("/", async (req, res) => {
 
     let pipeline = [{ $match: filter }];
 
+    // 🔹 Apply caste + rank filter
     if (caste && casteFieldMap[caste]) {
       const casteField = `$${casteFieldMap[caste]}`;
       let expr = [];
@@ -45,30 +47,69 @@ router.get("/", async (req, res) => {
 
       if (expr.length > 0) {
         pipeline.push({
-          $match: {
-            $expr: { $and: expr },
-          },
+          $match: { $expr: { $and: expr } },
         });
       }
     }
 
-    // ✅ Deduplication: group by key fields
-    // ✅ Add deduplication step
-pipeline.push({
-  $group: {
-    _id: {
-      instCode: "$instCode",
-      instituteName: "$instituteName",
-      branchCode: "$branchCode",
-      distCode: "$distCode",
-    },
-    doc: { $first: "$$ROOT" }, // keep only one doc per unique set
-  },
-});
+    // ✅ Deduplicate by grouping on instCode, instituteName, branchCode, distCode
+    pipeline.push({
+      $group: {
+        _id: {
+          instCode: "$instCode",
+          instituteName: "$instituteName",
+          branchCode: "$branchCode",
+          distCode: "$distCode",
+        },
+        ocBoys: { $first: "$ocBoys" },
+        ocGirls: { $first: "$ocGirls" },
+        bcABoys: { $first: "$bcABoys" },
+        bcAGirls: { $first: "$bcAGirls" },
+        bcBBoys: { $first: "$bcBBoys" },
+        bcBGirls: { $first: "$bcBGirls" },
+        bcCBoys: { $first: "$bcCBoys" },
+        bcCGirls: { $first: "$bcCGirls" },
+        bcDBoys: { $first: "$bcDBoys" },
+        bcDGirls: { $first: "$bcDGirls" },
+        bcEBoys: { $first: "$bcEBoys" },
+        bcEGirls: { $first: "$bcEGirls" },
+        scBoys: { $first: "$scBoys" },
+        scGirls: { $first: "$scGirls" },
+        stBoys: { $first: "$stBoys" },
+        stGirls: { $first: "$stGirls" },
+        ewsGenOu: { $first: "$ewsGenOu" },
+        ewsGirlsOu: { $first: "$ewsGirlsOu" },
+      },
+    });
 
-// ✅ Replace grouped docs back
-pipeline.push({ $replaceRoot: { newRoot: "$doc" } });
-
+    // ✅ Flatten back (remove _id nesting)
+    pipeline.push({
+      $project: {
+        _id: 0,
+        instCode: "$_id.instCode",
+        instituteName: "$_id.instituteName",
+        branchCode: "$_id.branchCode",
+        distCode: "$_id.distCode",
+        ocBoys: 1,
+        ocGirls: 1,
+        bcABoys: 1,
+        bcAGirls: 1,
+        bcBBoys: 1,
+        bcBGirls: 1,
+        bcCBoys: 1,
+        bcCGirls: 1,
+        bcDBoys: 1,
+        bcDGirls: 1,
+        bcEBoys: 1,
+        bcEGirls: 1,
+        scBoys: 1,
+        scGirls: 1,
+        stBoys: 1,
+        stGirls: 1,
+        ewsGenOu: 1,
+        ewsGirlsOu: 1,
+      },
+    });
 
     console.log("📌 Pipeline being applied:", JSON.stringify(pipeline, null, 2));
 
@@ -79,6 +120,5 @@ pipeline.push({ $replaceRoot: { newRoot: "$doc" } });
     res.status(500).send("Server error");
   }
 });
-
 
 module.exports = router;
