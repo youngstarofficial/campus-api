@@ -53,18 +53,22 @@ router.get("/", async (req, res) => {
     }
 
     // ✅ Deduplication: group by key fields
-    pipeline.push({
-      $group: {
-        _id: {
-          instCode: "$instCode",
-          branchCode: "$branchCode",
-          distCode: "$distCode",
-        },
-        doc: { $first: "$$ROOT" },
-      },
-    });
+    // ✅ Add deduplication step
+pipeline.push({
+  $group: {
+    _id: {
+      instCode: "$instCode",
+      instituteName: "$instituteName",
+      branchCode: "$branchCode",
+      distCode: "$distCode",
+    },
+    doc: { $first: "$$ROOT" }, // keep only one doc per unique set
+  },
+});
 
-    pipeline.push({ $replaceRoot: { newRoot: "$doc" } });
+// ✅ Replace grouped docs back
+pipeline.push({ $replaceRoot: { newRoot: "$doc" } });
+
 
     console.log("📌 Pipeline being applied:", JSON.stringify(pipeline, null, 2));
 
