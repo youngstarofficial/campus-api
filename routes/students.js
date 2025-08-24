@@ -2,17 +2,6 @@ const express = require("express");
 const router = express.Router();
 const Student = require("../models/Student"); // adjust path if needed
 
-// 🔹 Test route – check if Atlas is returning any docs
-router.get("/test", async (req, res) => {
-  try {
-    const docs = await Student.find().limit(5);
-    res.json(docs);
-  } catch (err) {
-    console.error("❌ Test route error:", err);
-    res.status(500).send("Error fetching test data");
-  }
-});
-
 // 🔹 Main students search route
 router.get("/", async (req, res) => {
   try {
@@ -63,7 +52,7 @@ router.get("/", async (req, res) => {
       }
     }
 
-    // ✅ Add deduplication step
+    // ✅ Deduplication: group by key fields
     pipeline.push({
       $group: {
         _id: {
@@ -71,21 +60,21 @@ router.get("/", async (req, res) => {
           branchCode: "$branchCode",
           distCode: "$distCode",
         },
-        doc: { $first: "$$ROOT" }, // keep only first document for each combo
+        doc: { $first: "$$ROOT" },
       },
     });
 
-    // ✅ Replace grouped docs back
     pipeline.push({ $replaceRoot: { newRoot: "$doc" } });
 
     console.log("📌 Pipeline being applied:", JSON.stringify(pipeline, null, 2));
 
-    const results = await Student.aggregate(pipeline).limit(200); // limit to avoid overload
+    const results = await Student.aggregate(pipeline).limit(200);
     res.json(results);
   } catch (err) {
     console.error("❌ Error in /students route:", err);
     res.status(500).send("Server error");
   }
 });
+
 
 module.exports = router;
