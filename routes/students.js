@@ -1,63 +1,110 @@
 const express = require("express");
 const router = express.Router();
-const { MongoClient } = require("mongodb");
+const Student = require("../models/Student"); // adjust path if needed
 
-const uri = "mongodb://localhost:27017"; // update if using Atlas
-const client = new MongoClient(uri);
-
-router.get("/students", async (req, res) => {
+// 🔹 Test route – check if Atlas is returning any docs
+router.get("/test", async (req, res) => {
   try {
-    await client.connect();
-    const db = client.db("yourDB"); // change to your DB name
-    const collection = db.collection("students");
+    const docs = await Student.find().limit(5);
+    res.json(docs);
+  } catch (err) {
+    console.error("❌ Test route error:", err);
+    res.status(500).send("Error fetching test data");
+  }
+});
 
-    const { branch, caste, district, collegeType, minRank, maxRank } = req.query;
+// 🔹 Main students search route
+router.get("/", async (req, res) => {
+  try {
+    const { branch, district, caste, minRank, maxRank } = req.query;
 
-    // Build match filters
-    let matchStage = {};
-    if (branch && branch !== "All") matchStage.branch = branch;
-    if (caste && caste !== "All") matchStage.caste = caste;
-    if (district && district !== "All") matchStage.district = district;
-    if (collegeType && collegeType !== "All") matchStage.collegeType = collegeType;
-    if (minRank) matchStage.rank = { ...matchStage.rank, $gte: parseInt(minRank) };
-    if (maxRank) matchStage.rank = { ...matchStage.rank, $lte: parseInt(maxRank) };
+    let filter = {};
 
-    // Aggregation pipeline
-    const results = await collection
-      .aggregate([
-        { $match: matchStage },
-        {
-          $group: {
-            _id: {
-              collegeName: "$collegeName",
-              branch: "$branch",
-              caste: "$caste",
-              district: "$district",
-            },
-            minRank: { $min: "$rank" },
-            maxRank: { $max: "$rank" },
+    if (branch) filter.branchCode = branch.toUpperCase();
+    if (district) filter.distCode = district.toUpperCase();
+
+    // caste field map
+    const casteFieldMap = {
+      "OC Boys": "ocBoys",
+      "OC Girls": "ocGirls",
+      "BC-A Boys": "bcABoys",
+      "BC-A Girls": "bcAGirls",
+      "BC-B Boys": "bcBBoys",
+      "BC-B Girls": "bcBGirls",
+      "BC-C Boys": "bcCBoys",
+      "BC-C Girls": "bcCGirls",
+      "BC-D Boys": "bcDBoys",
+      "BC-D Girls": "bcDGirls",
+      "BC-E Boys": "bcEBoys",
+      "BC-E Girls": "bcEGirls",
+      "SC Boys": "scBoys",
+      "SC Girls": "scGirls",
+      "ST Boys": "stBoys",
+      "ST Girls": "stGirls",
+      "EWS GEN OU": "ewsGenOu",
+      "EWS Girls OU": "ewsGirlsOu",
+    };
+
+    let pipeline = [{ $match: filter }];
+
+    if (caste && casteFieldMap[caste]) {
+      const casteField = `$${casteFieldMap[caste]}`;
+      let expr = [];
+
+      if (minRank) expr.push({ $gte: [casteField, parseInt(minRank)] });
+      if (maxRank) expr.push({ $lte: [casteField, parseInt(maxRank)] });
+
+      if (expr.length > 0) {
+        pipeline.push({
+          $match: {
+            $expr: { $and: expr },
           },
-        },
-        {
-          $project: {
-            _id: 0,
-            collegeName: "$_id.collegeName",
-            branch: "$_id.branch",
-            caste: "$_id.caste",
-            district: "$_id.district",
-            minRank: 1,
-            maxRank: 1,
-          },
-        },
-      ])
-      .toArray();
+        });
+      }
+    }
 
+    // ✅ Deduplication step – keep only 1 doc per college+branch+district
+    pipeline.push({
+      $group: {
+        _id: {
+          instCode: "$instCode",
+          branchCode: "$branchCode",
+          distCode: "$distCode",
+        },
+        instCode: { $first: "$instCode" },
+        instituteName: { $first: "$instituteName" },
+        branchCode: { $first: "$branchCode" },
+        distCode: { $first: "$distCode" },
+
+        // Merge caste fields – pick first non-null
+        ocBoys: { $first: "$ocBoys" },
+        ocGirls: { $first: "$ocGirls" },
+        bcABoys: { $first: "$bcABoys" },
+        bcAGirls: { $first: "$bcAGirls" },
+        bcBBoys: { $first: "$bcBBoys" },
+        bcBGirls: { $first: "$bcBGirls" },
+        bcCBoys: { $first: "$bcCBoys" },
+        bcCGirls: { $first: "$bcCGirls" },
+        bcDBoys: { $first: "$bcDBoys" },
+        bcDGirls: { $first: "$bcDGirls" },
+        bcEBoys: { $first: "$bcEBoys" },
+        bcEGirls: { $first: "$bcEGirls" },
+        scBoys: { $first: "$scBoys" },
+        scGirls: { $first: "$scGirls" },
+        stBoys: { $first: "$stBoys" },
+        stGirls: { $first: "$stGirls" },
+        ewsGenOu: { $first: "$ewsGenOu" },
+        ewsGirlsOu: { $first: "$ewsGirlsOu" },
+      },
+    });
+
+    console.log("📌 Pipeline being applied:", JSON.stringify(pipeline, null, 2));
+
+    const results = await Student.aggregate(pipeline).limit(200); // limit to avoid overload
     res.json(results);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal server error" });
-  } finally {
-    await client.close();
+    console.error("❌ Error in /students route:", err);
+    res.status(500).send("Server error");
   }
 });
 
