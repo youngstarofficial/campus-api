@@ -23,7 +23,6 @@ router.get("/", async (req, res) => {
     if (branch) filter.branchCode = branch.toUpperCase();
     if (district) filter.distCode = district.toUpperCase();
 
-    // caste field map
     const casteFieldMap = {
       "OC Boys": "ocBoys",
       "OC Girls": "ocGirls",
@@ -63,7 +62,7 @@ router.get("/", async (req, res) => {
       }
     }
 
-    // ✅ Deduplication step – keep only 1 doc per college+branch+district
+    // ✅ Deduplication step
     pipeline.push({
       $group: {
         _id: {
@@ -75,8 +74,6 @@ router.get("/", async (req, res) => {
         instituteName: { $first: "$instituteName" },
         branchCode: { $first: "$branchCode" },
         distCode: { $first: "$distCode" },
-
-        // Merge caste fields – pick first non-null
         ocBoys: { $first: "$ocBoys" },
         ocGirls: { $first: "$ocGirls" },
         bcABoys: { $first: "$bcABoys" },
@@ -98,9 +95,21 @@ router.get("/", async (req, res) => {
       },
     });
 
-    console.log("📌 Pipeline being applied:", JSON.stringify(pipeline, null, 2));
+    // ✅ Clean instCode for sorting (case-insensitive, no spaces)
+    pipeline.push({
+      $addFields: {
+        sortCode: { $toUpper: { $trim: { input: "$instCode" } } }
+      }
+    });
 
-    const results = await Student.aggregate(pipeline).limit(200); // limit to avoid overload
+    // ✅ Sort by instCode alphabetically
+    pipeline.push({
+      $sort: { sortCode: 1 }
+    });
+
+    console.log("📌 Pipeline:", JSON.stringify(pipeline, null, 2));
+
+    const results = await Student.aggregate(pipeline).limit(200);
     res.json(results);
   } catch (err) {
     console.error("❌ Error in /students route:", err);

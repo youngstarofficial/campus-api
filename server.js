@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
 
-// ✅ Load .env (only locally, Render injects env vars automatically)
+// ✅ Load .env for local development
 if (process.env.NODE_ENV !== "production") {
   dotenv.config();
 }
@@ -17,13 +17,16 @@ mongoose
   .connect(process.env.MONGO_URI, {
     useNewUrlParser: true,
     useUnifiedTopology: true,
+    dbName: "campus", // make sure DB name is correct
   })
   .then(() => console.log("✅ MongoDB Atlas Connected"))
   .catch((err) => console.error("❌ MongoDB Connection Error:", err));
 
-// ✅ Schema
+// ✅ Flexible Schema
 const studentSchema = new mongoose.Schema({}, { strict: false });
-const Student = mongoose.model("Student", studentSchema);
+
+// ✅ Explicitly use "Students" collection in "campus" DB
+const Student = mongoose.model("Student", studentSchema, "Students");
 
 // ✅ Caste → DB Field Map
 const casteFieldMap = {
@@ -53,34 +56,27 @@ app.get("/students", async (req, res) => {
     const { branch, district, caste, minRank, maxRank } = req.query;
     let filter = {};
 
-    // 🎯 Apply branch filter
+    // 🎯 Branch filter
     if (branch) filter.branchCode = branch.toUpperCase();
 
-    // 🎯 Apply district filter
+    // 🎯 District filter
     if (district) filter.distCode = district.toUpperCase();
 
-    // 🎯 Apply caste + rank filter
+    // 🎯 Caste + Rank filter
     if (caste) {
       const casteField = casteFieldMap[caste];
       if (casteField) {
         let rankCondition = {};
-
         if (minRank) rankCondition.$gte = parseInt(minRank);
         if (maxRank) rankCondition.$lte = parseInt(maxRank);
 
-        if (Object.keys(rankCondition).length > 0) {
-          // 🎯 If rank given → filter within that rank range
-          filter[casteField] = rankCondition;
-        } else {
-          // 🎯 If only caste selected → ensure field exists
-          filter[casteField] = { $exists: true };
-        }
+        // Apply condition if exists, else just check field exists
+        filter[casteField] = Object.keys(rankCondition).length > 0 ? rankCondition : { $exists: true };
       }
     }
 
     console.log("📌 Final Query Filter:", JSON.stringify(filter, null, 2));
 
-    // 🎯 Get matching students
     const students = await Student.find(filter).lean();
     res.json(students);
   } catch (err) {
