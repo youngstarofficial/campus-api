@@ -1,34 +1,31 @@
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
-import dotenv from "dotenv";
-
-// ✅ Load .env for local development
-if (process.env.NODE_ENV !== "production") {
-  dotenv.config();
-}
 
 const app = express();
+
+// Enable CORS
 app.use(cors());
 app.use(express.json());
 
-// ✅ Connect MongoDB Atlas
+// ✅ MongoDB Atlas connection
+const MONGO_URI =
+  "mongodb+srv://mercysikhinam:Rmr2306@cluster0.iulxagu.mongodb.net/campus?retryWrites=true&w=majority";
+
 mongoose
-  .connect(process.env.MONGO_URI, {
+  .connect(MONGO_URI, {
     useNewUrlParser: true,
     useUnifiedTopology: true,
-    dbName: "campus", // make sure DB name is correct
+    dbName: "campus",
   })
-  .then(() => console.log("✅ MongoDB Atlas Connected"))
+  .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.error("❌ MongoDB Connection Error:", err));
 
-// ✅ Flexible Schema
+// Flexible Schema
 const studentSchema = new mongoose.Schema({}, { strict: false });
-
-// ✅ Explicitly use "Students" collection in "campus" DB
 const Student = mongoose.model("Student", studentSchema, "Students");
 
-// ✅ Caste → DB Field Map
+// Caste → DB Field Map
 const casteFieldMap = {
   "OC Boys": "ocBoys",
   "OC Girls": "ocGirls",
@@ -50,34 +47,55 @@ const casteFieldMap = {
   "EWS Girls OU": "ewsGirlsOu",
 };
 
-// ✅ API Route
+// ✅ Root route (for Render test)
+app.get("/", (req, res) => {
+  res.json({ message: "Backend is live!" });
+});
+
+// ✅ Students API
 app.get("/students", async (req, res) => {
   try {
     const { branch, district, caste, minRank, maxRank } = req.query;
     let filter = {};
 
-    // 🎯 Branch filter
     if (branch) filter.branchCode = branch.toUpperCase();
-
-    // 🎯 District filter
     if (district) filter.distCode = district.toUpperCase();
 
-    // 🎯 Caste + Rank filter
-    if (caste) {
-      const casteField = casteFieldMap[caste];
-      if (casteField) {
-        let rankCondition = {};
-        if (minRank) rankCondition.$gte = parseInt(minRank);
-        if (maxRank) rankCondition.$lte = parseInt(maxRank);
-
-        // Apply condition if exists, else just check field exists
-        filter[casteField] = Object.keys(rankCondition).length > 0 ? rankCondition : { $exists: true };
-      }
+    if (!caste || !casteFieldMap[caste]) {
+      return res.status(400).json({ error: "Invalid caste selection" });
     }
 
-    console.log("📌 Final Query Filter:", JSON.stringify(filter, null, 2));
+    const casteField = casteFieldMap[caste];
 
-    const students = await Student.find(filter).lean();
+    // 🔹 Build pipeline
+    let pipeline = [{ $match: filter }];
+
+    // Convert caste field safely to int
+    pipeline.push({
+      $addFields: {
+        casteRank: {
+          $cond: {
+            if: { $regexMatch: { input: `$${casteField}`, regex: /^[0-9]+$/ } },
+            then: { $toInt: `$${casteField}` },
+            else: null,
+          },
+        },
+      },
+    });
+
+    // Filter by min/max rank if provided
+    let rankMatch = {};
+    if (minRank) rankMatch.$gte = parseInt(minRank);
+    if (maxRank) rankMatch.$lte = parseInt(maxRank);
+    if (Object.keys(rankMatch).length > 0) {
+      pipeline.push({ $match: { casteRank: rankMatch } });
+    }
+
+    // Sort ascending by casteRank
+    pipeline.push({ $sort: { casteRank: 1 } });
+
+    const students = await Student.aggregate(pipeline);
+
     res.json(students);
   } catch (err) {
     console.error("❌ Error in /students:", err);
@@ -85,6 +103,11 @@ app.get("/students", async (req, res) => {
   }
 });
 
-// ✅ Start server
+// ✅ Test route
+app.get("/test", (req, res) => {
+  res.json({ message: "Test OK" });
+});
+
+// ✅ Use Render's dynamic PORT
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
